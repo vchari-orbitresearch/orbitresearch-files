@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF Navigator</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#ffffff" />
+  <style>
+    body { font-family: Arial; margin: 0; padding: 1rem; }
+    #controls, #viewer { margin-top: 1rem; }
+    canvas { width: 100%; border: 1px solid #ccc; }
+    select, input[type="file"], button { margin: 0.5rem 0; display: block; }
+  </style>
+</head>
+<body>
+<input type="text" id="search-input" placeholder="Search in PDF..." style="width: 100%; margin-top: 1rem;" />
+<div id="search-results" style="margin-top: 0.5rem;"></div>
+
+<script>
+  document.getElementById('search-input').addEventListener('input', function () {
+    const query = this.value.toLowerCase();
+    if (!pdfDoc || !query) return;
+
+    const resultsContainer = document.getElementById('search-results');
+    resultsContainer.innerHTML = 'Searching...';
+
+    let matches = [];
+    let totalPages = pdfDoc.numPages;
+    let processed = 0;
+
+    for (let i = 1; i <= totalPages; i++) {
+      pdfDoc.getPage(i).then(page => {
+        page.getTextContent().then(textContent => {
+          const text = textContent.items.map(item => item.str).join(' ').toLowerCase();
+          if (text.includes(query)) {
+            matches.push(i);
+          }
+          processed++;
+          if (processed === totalPages) {
+            resultsContainer.innerHTML = matches.length
+              ? 'Matches found on page(s): ' + matches.join(', ')
+              : 'No matches found';
+          }
+        });
+      });
+    }
+  });
+</script>
+  <h2>PDF Navigator</h2>
+  <input type="file" id="file-input" accept="application/pdf" multiple />
+  <select id="doc-select"></select>
+  <div id="controls" style="display:none;">
+    <button id="prev">Previous</button>
+    <button id="next">Next</button>
+    Page <span id="page-num">1</span> / <span id="page-count">--</span>
+  </div>
+  <div id="viewer">
+    <canvas id="pdf-canvas"></canvas>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js');
+    }
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null;
+    const scale = 1.5, canvas = document.getElementById('pdf-canvas'), ctx = canvas.getContext('2d');
+    const docSelect = document.getElementById('doc-select');
+    let loadedFiles = [];
+
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const files = Array.from(e.target.files);
+      loadedFiles.push(...files);
+      renderDocSelect();
+    });
+
+    docSelect.addEventListener('change', () => {
+      const index = parseInt(docSelect.value, 10);
+      if (!isNaN(index)) loadPDF(index);
+    });
+
+    function renderDocSelect() {
+      docSelect.innerHTML = '';
+      loadedFiles.forEach((file, index) => {
+        const option = document.createElement('option');
+        option.textContent = file.name;
+        option.value = index;
+        docSelect.appendChild(option);
+      });
+      if (loadedFiles.length > 0) {
+        docSelect.selectedIndex = loadedFiles.length - 1;
+        loadPDF(loadedFiles.length - 1);
+      }
+    }
+
+    function loadPDF(index) {
+      const file = loadedFiles[index];
+      const fileReader = new FileReader();
+      fileReader.onload = function () {
+        const typedArray = new Uint8Array(this.result);
+        pdfjsLib.getDocument(typedArray).promise.then(function (pdf) {
+          pdfDoc = pdf;
+          document.getElementById('controls').style.display = 'block';
+          document.getElementById('page-count').textContent = pdf.numPages;
+          pageNum = 1;
+          renderPage(pageNum);
+        });
+      };
+      fileReader.readAsArrayBuffer(file);
+    }
+
+    function renderPage(num) {
+      pageRendering = true;
+      pdfDoc.getPage(num).then(function (page) {
+        const viewport = page.getViewport({ scale: scale });
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        const renderContext = { canvasContext: ctx, viewport: viewport };
+        const renderTask = page.render(renderContext);
+        renderTask.promise.then(function () {
+          pageRendering = false;
+          if (pageNumPending !== null) {
+            renderPage(pageNumPending);
+            pageNumPending = null;
+          }
+        });
+      });
+      document.getElementById('page-num').textContent = num;
+    }
+
+    document.getElementById('prev').addEventListener('click', () => {
+      if (pageNum <= 1) return;
+      pageNum--;
+      queueRenderPage(pageNum);
+    });
+
+    document.getElementById('next').addEventListener('click', () => {
+      if (pageNum >= pdfDoc.numPages) return;
+      pageNum++;
+      queueRenderPage(pageNum);
+    });
+
+    function queueRenderPage(num) {
+      if (pageRendering) {
+        pageNumPending = num;
+      } else {
+        renderPage(num);
+      }
+    }
+  </script>
+</body>
+</html>
