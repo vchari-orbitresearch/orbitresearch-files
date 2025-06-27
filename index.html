@@ -240,7 +240,8 @@
 </script>
 
   <h2>PDF Navigator</h2>
-  <input type="file" id="file-input" accept="application/pdf" multiple />
+  <input type="file" id="file-input" multiple webkitdirectory />
+  <select id="folder-filter-select"></select>
   <select id="doc-select"></select>
   <div id="controls" style="display:none;">
     <button id="prev">Previous</button>
@@ -260,49 +261,116 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null;
+    
     const baseScale = 1.5; // Your desired base scale
     const devicePixelRatio = window.devicePixelRatio || 1;
     const scale = baseScale * devicePixelRatio;
     canvas = document.getElementById('pdf-canvas'), ctx = canvas.getContext('2d');
     const docSelect = document.getElementById('doc-select');
-    let loadedFiles = [];
+
+    let allLoadedPdfs  = [];
+    let currentFilteredPdfs = [];
+
+    const virtualFolders = {
+      "All Files": [], // Special folder to show everything, no filter strings
+      "Homework": ["hw", "XX", "YY"], // Files containing "WW" OR "XX" OR "YY"
+      "Slides": ["Slide", "QQ"],   // Files containing "ZZ" OR "QQ"
+      "Reports": ["Report", "Summary"], // Files containing "Report" OR "Summary"
+      "Miscellaneous": [] // You might define this as a catch-all, or leave it to "All Files"
+    };
+
+    // --- Initial setup: Populate the folder filter dropdown when the page loads ---
+    function populateFolderFilter() {
+        folderFilterSelect.innerHTML = ''; // Clear existing options
+        for (const folderName in virtualFolders) {
+            const option = document.createElement('option');
+            option.textContent = folderName;
+            option.value = folderName;
+            folderFilterSelect.appendChild(option);
+        }
+        // Select "All Files" by default
+        folderFilterSelect.value = "All Files";
+    }
 
     document.getElementById('file-input').addEventListener('change', (e) => {
       const files = Array.from(e.target.files);
-      loadedFiles.push(...files);
+      const pdfFiles = files.filter(file => file.type === 'application/pdf');
+
+      if (pdfFiles.length === 0) {
+        alert('No PDF documents found in the selected folder(s) or files.');
+        return;
+      }
+
+      loadedFiles.push(...pdfFiles);
       renderDocSelect();
     });
 
-    docSelect.addEventListener('change', () => {
-      const index = parseInt(docSelect.value, 10);
-      if (!isNaN(index)) loadPDF(index);
-    });
+    function filterAndRenderDocs() {
+      const selectedFolderName = folderFilterSelect.value;
+      const searchStrings = virtualFolders[selectedFolderName]; // Get the array of search strings for the selected folder
 
-    function renderDocSelect() {
-      docSelect.innerHTML = '';
-      loadedFiles.forEach((file, index) => {
+      currentFilteredPdfs = []; // Clear the previously filtered list
+
+      if (selectedFolderName === "All Files" || !searchStrings || searchStrings.length === 0) {
+        // If "All Files" or no search strings defined for the folder, show all loaded PDFs
+        currentFilteredPdfs = [...allLoadedPdfs]; // Create a shallow copy
+      } else {
+        // Filter based on the search strings
+        currentFilteredPdfs = allLoadedPdfs.filter(pdfFile => {
+          // Check if the PDF file's name contains ANY of the search strings
+          return searchStrings.some(searchTerm =>
+            pdfFile.name.toLowerCase().includes(searchTerm.toLowerCase())
+          );
+        });
+      }
+
+      // Now, populate the document selection dropdown with the filtered PDFs
+      docSelect.innerHTML = ''; // Clear existing options
+
+      if (currentFilteredPdfs.length === 0) {
         const option = document.createElement('option');
-        option.textContent = file.name;
-        option.value = index;
+        option.textContent = "No PDFs found for this filter";
+        option.value = "";
+        docSelect.appendChild(option);
+        document.getElementById('controls').style.display = 'none'; // Hide controls if no PDFs
+        pdfDoc = null; // Clear PDF viewer
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas
+        document.getElementById('page-count').textContent = '--';
+        document.getElementById('page-num').textContent = '1';
+        return; // No files to load
+      }
+
+      currentFilteredPdfs.forEach((pdfFile, index) => {
+        const option = document.createElement('option');
+        option.textContent = pdfFile.name;
+        option.value = index; // Store the index within the currentFilteredPdfs array
         docSelect.appendChild(option);
       });
-      if (loadedFiles.length > 0) {
-        docSelect.selectedIndex = loadedFiles.length - 1;
-        loadPDF(loadedFiles.length - 1);
-      }
+
+      // Automatically select and load the first PDF in the filtered list
+      docSelect.selectedIndex = 0;
+      loadPDF(0); // Load the PDF at index 0 of the currentFilteredPdfs array
+      document.getElementById('controls').style.display = 'block'; // Show controls
     }
 
-    function loadPDF(index) {
-      const file = loadedFiles[index];
+    function loadPDF(indexInFilteredList) {
+      if (indexInFilteredList < 0 || indexInFilteredList >= currentFilteredPdfs.length) {
+        console.error("Invalid PDF index for loading.");
+        return;
+      }
+      const file = currentFilteredPdfs[indexInFilteredList]; // Access the File object from the filtered array
+
       const fileReader = new FileReader();
       fileReader.onload = function () {
         const typedArray = new Uint8Array(this.result);
         pdfjsLib.getDocument(typedArray).promise.then(function (pdf) {
           pdfDoc = pdf;
-          document.getElementById('controls').style.display = 'block';
           document.getElementById('page-count').textContent = pdf.numPages;
           pageNum = 1;
           renderPage(pageNum);
+        }).catch(function(error) {
+            console.error('Error loading PDF:', error);
+            alert('Could not load PDF: ' + error.message);
         });
       };
       fileReader.readAsArrayBuffer(file);
@@ -342,6 +410,11 @@
       });
     }
 
+    docSelect.addEventListener('change', () => {
+      const index = parseInt(docSelect.value, 10);
+      if (!isNaN(index)) loadPDF(index);
+    });
+
     document.getElementById('prev').addEventListener('click', () => {
       if (pageNum <= 1) return;
       pageNum--;
@@ -349,7 +422,7 @@
     });
 
     document.getElementById('next').addEventListener('click', () => {
-      if (pageNum >= pdfDoc.numPages) return;
+      if (pdfDoc &&pageNum >= pdfDoc.numPages) return;
       pageNum++;
       queueRenderPage(pageNum);
     });
