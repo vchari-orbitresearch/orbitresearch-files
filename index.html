@@ -18,231 +18,19 @@
   </style>
 </head>
 <body>
-<input type="text" id="search-input" placeholder="Search in PDF..." style="width: 100%; margin-top: 1rem;" />
-<div id="search-results" style="margin-top: 0.5rem;"></div>
-<div id="search-navigation" class="search-nav" style="display: none;">
-  <button id="prev-match">Previous Match</button>
-  <button id="next-match">Next Match</button>
-  <span id="match-count"></span>
-</div>
-
-<script>
-  // PDF.js setup and other existing code remains the same until the search section
-
-  // Search functionality variables
-  let searchMatches = [];
-  let currentMatchIndex = -1;
-  let searchQuery = '';
-
-  document.getElementById('search-input').addEventListener('input', async function() {
-    searchQuery = this.value.trim().toLowerCase();
-    if (!pdfDoc || !searchQuery) {
-      clearHighlights();
-      document.getElementById('search-results').innerHTML = '';
-      document.getElementById('search-navigation').style.display = 'none';
-      return;
-    }
-
-    document.getElementById('search-results').innerHTML = 'Searching...';
-    searchMatches = [];
-    currentMatchIndex = -1;
-
-    const totalPages = pdfDoc.numPages;
-    let processedPages = 0;
-
-    for (let i = 1; i <= totalPages; i++) {
-      const page = await pdfDoc.getPage(i);
-      const textContent = await page.getTextContent();
-      
-      const textItems = textContent.items;
-      let pageText = '';
-      let pageMatches = [];
-
-      // Process each text item to find matches
-      textItems.forEach((item, itemIndex) => {
-        const itemText = item.str.toLowerCase();
-        if (itemText.includes(searchQuery)) {
-          const startIndices = [];
-          let index = item.str.toLowerCase().indexOf(searchQuery);
-          while (index !== -1) {
-            startIndices.push(index);
-            index = item.str.toLowerCase().indexOf(searchQuery, index + 1);
-          }
-          
-          startIndices.forEach(startIndex => {
-            pageMatches.push({
-              pageNum: i,
-              itemIndex,
-              startIndex,
-              endIndex: startIndex + searchQuery.length,
-              text: item.str
-            });
-          });
-        }
-        pageText += item.str + ' ';
-      });
-
-      if (pageMatches.length > 0) {
-        searchMatches.push(...pageMatches);
-      }
-
-      processedPages++;
-      if (processedPages === totalPages) {
-        updateSearchResults();
-      }
-    }
-  });
-
-  function updateSearchResults() {
-    const resultsContainer = document.getElementById('search-results');
-    const searchNav = document.getElementById('search-navigation');
-    
-    if (searchMatches.length === 0) {
-      resultsContainer.innerHTML = 'No matches found';
-      searchNav.style.display = 'none';
-      return;
-    }
-
-    // Group matches by page
-    const matchesByPage = {};
-    searchMatches.forEach(match => {
-      if (!matchesByPage[match.pageNum]) {
-        matchesByPage[match.pageNum] = [];
-      }
-      matchesByPage[match.pageNum].push(match);
-    });
-
-    // Display results
-    let resultsHTML = `<div>Found ${searchMatches.length} match(es) on ${Object.keys(matchesByPage).length} page(s):</div>`;
-    
-    for (const pageNum in matchesByPage) {
-      const pageMatches = matchesByPage[pageNum];
-      resultsHTML += `<div class="search-result" data-page="${pageNum}">Page ${pageNum}: ${pageMatches.length} match(es)</div>`;
-    }
-
-    resultsContainer.innerHTML = resultsHTML;
-    searchNav.style.display = 'flex';
-    document.getElementById('match-count').textContent = `Match ${currentMatchIndex + 1} of ${searchMatches.length}`;
-
-    // Add click handlers to page results
-    document.querySelectorAll('.search-result').forEach(el => {
-      el.addEventListener('click', () => {
-        const pageNum = parseInt(el.getAttribute('data-page'));
-        const firstMatchOnPage = searchMatches.find(m => m.pageNum === pageNum);
-        if (firstMatchOnPage) {
-          currentMatchIndex = searchMatches.indexOf(firstMatchOnPage);
-          goToMatch(currentMatchIndex);
-        }
-      });
-    });
-
-    // Go to first match if any
-    if (searchMatches.length > 0) {
-      currentMatchIndex = 0;
-      goToMatch(currentMatchIndex);
-    }
-  }
-
-  function goToMatch(index) {
-    if (index < 0 || index >= searchMatches.length) return;
-    
-    const match = searchMatches[index];
-    currentMatchIndex = index;
-    
-    // Update UI
-    document.getElementById('match-count').textContent = `Match ${index + 1} of ${searchMatches.length}`;
-    
-    // Go to page and highlight
-    if (pageNum !== match.pageNum) {
-      pageNum = match.pageNum;
-      renderPage(pageNum).then((renderedPage) => {
-        highlightMatch(match, renderedPage);
-      });
-    } else {
-      pdfDoc.getPage(pageNum).then((currentPage) => {
-        highlightMatch(match, currentPage);
-      });
-    }
-  }
-
-  async function highlightMatch(match, page) {
-    clearHighlights();
-    
-    const textContent = await page.getTextContent();
-    const textItem = textContent.items[match.itemIndex];
-
-    // Recalculate viewport for highlighting, using the same scale as renderPage
-    const scaleToRender = getOptimalScale(); // Ensure this matches renderPage's scale
-    const viewport = page.getViewport({ scale: scaleToRender }); // Use the page object here
-
-    // ... rest of your highlightMatch code remains similar
-    // Ensure textLayerDiv's dimensions are also based on the displayed canvas size
-    textLayerDiv.style.left = canvas.offsetLeft + 'px';
-    textLayerDiv.style.top = canvas.offsetTop + 'px';
-    textLayerDiv.style.width = canvas.style.width; // Use displayed width
-    textLayerDiv.style.height = canvas.style.height; // Use displayed height
-    document.body.appendChild(textLayerDiv);
-
-    const textGeometry = pdfjsLib.TextLayer.renderTextLayer({
-        textContent: {
-            items: [textItem]
-        },
-        container: textLayerDiv,
-        viewport: viewport, // Use the dynamically calculated viewport
-        textDivs: []
-    });
-    
-    // Wait for text layer to render
-    setTimeout(() => {
-      const textDiv = textLayerDiv.querySelector('.textLayer div');
-      if (textDiv) {
-        const range = document.createRange();
-        const textNode = textDiv.childNodes[0];
-        
-        range.setStart(textNode, match.startIndex);
-        range.setEnd(textNode, match.endIndex);
-        
-        const highlight = document.createElement('span');
-        highlight.className = 'highlight';
-        range.surroundContents(highlight);
-        
-        // Scroll to highlight
-        highlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-      
-      // Clean up
-      setTimeout(() => textLayerDiv.remove(), 1000);
-    }, 100);
-  }
-
-  function clearHighlights() {
-    document.querySelectorAll('.highlight').forEach(el => {
-      el.outerHTML = el.innerHTML;
-    });
-  }
-
-  // Navigation between matches
-  document.getElementById('prev-match').addEventListener('click', () => {
-    if (currentMatchIndex > 0) {
-      currentMatchIndex--;
-      goToMatch(currentMatchIndex);
-    }
-  });
-
-  document.getElementById('next-match').addEventListener('click', () => {
-    if (currentMatchIndex < searchMatches.length - 1) {
-      currentMatchIndex++;
-      goToMatch(currentMatchIndex);
-    }
-  });
-
-  // Rest of your existing PDF viewer code remains the same...
-</script>
+  <input type="text" id="search-input" placeholder="Search in PDF..." style="width: 100%; margin-top: 1rem;" />
+  <div id="search-results" style="margin-top: 0.5rem;"></div>
+  <div id="search-navigation" class="search-nav" style="display: none;">
+    <button id="prev-match">Previous Match</button>
+    <button id="next-match">Next Match</button>
+    <span id="match-count"></span>
+  </div>
 
   <h2>PDF Navigator</h2>
-  <input type="file" id="file-input" multiple webkitdirectory />
+  <input type="file" id="file-input" accept="application/pdf" multiple />
   <select id="folder-filter-select"></select>
   <select id="doc-select"></select>
+
   <div id="controls" style="display:none;">
     <button id="prev">Previous</button>
     <button id="next">Next</button>
@@ -254,57 +42,91 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
+    // --- Service Worker and PDF.js Worker setup ---
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('service-worker.js');
     }
-
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-    let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null;
-    
-    const baseScale = 1.5; // Your desired base scale
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const scale = baseScale * devicePixelRatio;
-    canvas = document.getElementById('pdf-canvas'), ctx = canvas.getContext('2d');
+    // --- Global PDF Viewer Variables ---
+    let pdfDoc = null;
+    let pageNum = 1;
+    let pageRendering = false;
+    let pageNumPending = null;
+
+    // --- Element References ---
+    const canvas = document.getElementById('pdf-canvas');
+    const ctx = canvas.getContext('2d');
     const docSelect = document.getElementById('doc-select');
+    const folderFilterSelect = document.getElementById('folder-filter-select'); // Correctly declared here
+    const viewerDiv = document.getElementById('viewer'); // Make sure this is linked to your viewer div
 
-    let allLoadedPdfs  = [];
-    let currentFilteredPdfs = [];
+    // --- Data Storage for Files ---
+    let allLoadedPdfs = []; // Stores ALL uploaded PDF File objects
+    let currentFilteredPdfs = []; // Stores the PDF File objects currently displayed in docSelect
 
+    // --- Define your virtual folders and their search strings ---
     const virtualFolders = {
-      "All Files": [], // Special folder to show everything, no filter strings
-      "Homework": ["hw", "XX", "YY"], // Files containing "WW" OR "XX" OR "YY"
-      "Slides": ["Slide", "QQ"],   // Files containing "ZZ" OR "QQ"
-      "Reports": ["Report", "Summary"], // Files containing "Report" OR "Summary"
-      "Miscellaneous": [] // You might define this as a catch-all, or leave it to "All Files"
+      "All Files": [], // Special folder to show everything
+      "Homework": ["hw", "assignment"], // Changed 'XX', 'YY' for more realistic examples
+      "Slides": ["Slide", "Presentation"],   // Changed 'QQ' for more realistic examples
+      "Reports": ["Report", "Summary"]
+      // "Miscellaneous": [] is not strictly needed if "All Files" covers non-matching
     };
 
-    // --- Initial setup: Populate the folder filter dropdown when the page loads ---
-    function populateFolderFilter() {
-        folderFilterSelect.innerHTML = ''; // Clear existing options
-        for (const folderName in virtualFolders) {
-            const option = document.createElement('option');
-            option.textContent = folderName;
-            option.value = folderName;
-            folderFilterSelect.appendChild(option);
-        }
-        // Select "All Files" by default
-        folderFilterSelect.value = "All Files";
+    // --- Helper function for optimal scale ---
+    function getOptimalScale() {
+      const viewerWidth = viewerDiv.clientWidth; // Get the effective width of the viewer area
+      if (!pdfDoc) return 1.0; // Default if no PDF is loaded
+      const initialViewport = pdfDoc.getPage(pageNum).then(page => page.getViewport({ scale: 1.0 }));
+      return initialViewport.then(viewport => {
+          let calculatedScale = viewerWidth / viewport.width;
+          const devicePixelRatio = window.devicePixelRatio || 1;
+          return calculatedScale * devicePixelRatio;
+      });
     }
 
-    document.getElementById('file-input').addEventListener('change', (e) => {
-      const files = Array.from(e.target.files);
-      const pdfFiles = files.filter(file => file.type === 'application/pdf');
+    // --- Function to populate the folder filter dropdown ---
+    function populateFolderFilter() {
+      folderFilterSelect.innerHTML = ''; // Clear existing options
+      for (const folderName in virtualFolders) {
+        const option = document.createElement('option');
+        option.textContent = folderName;
+        option.value = folderName;
+        folderFilterSelect.appendChild(option);
+      }
+      // Select "All Files" by default
+      folderFilterSelect.value = "All Files";
+      // After populating, immediately filter and render docs based on the default selection
+      filterAndRenderDocs();
+    }
 
-      if (pdfFiles.length === 0) {
-        alert('No PDF documents found in the selected folder(s) or files.');
+    // --- Event Listener for File Upload Input ---
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const selectedFiles = Array.from(e.target.files);
+      const newPdfFiles = selectedFiles.filter(file => file.type === 'application/pdf');
+
+      if (newPdfFiles.length === 0) {
+        alert('No PDF documents were selected. Please select one or more PDF files.');
         return;
       }
 
-      loadedFiles.push(...pdfFiles);
-      renderDocSelect();
+      // Add newly selected PDFs to our ALL loaded PDFs array
+      allLoadedPdfs.push(...newPdfFiles);
+
+      // After new files are added, re-filter and re-render the document select dropdown
+      filterAndRenderDocs();
+
+      // Log for debugging
+      newPdfFiles.forEach(file => {
+        console.log(`Uploaded PDF: ${file.name}, Type: ${file.type}`);
+      });
     });
 
+    // --- Event Listener for Folder Filter Selection ---
+    folderFilterSelect.addEventListener('change', filterAndRenderDocs);
+
+    // --- Core Function: Filter and Render Documents based on selected folder ---
     function filterAndRenderDocs() {
       const selectedFolderName = folderFilterSelect.value;
       const searchStrings = virtualFolders[selectedFolderName]; // Get the array of search strings for the selected folder
@@ -330,7 +152,7 @@
       if (currentFilteredPdfs.length === 0) {
         const option = document.createElement('option');
         option.textContent = "No PDFs found for this filter";
-        option.value = "";
+        option.value = ""; // No valid index
         docSelect.appendChild(option);
         document.getElementById('controls').style.display = 'none'; // Hide controls if no PDFs
         pdfDoc = null; // Clear PDF viewer
@@ -353,6 +175,7 @@
       document.getElementById('controls').style.display = 'block'; // Show controls
     }
 
+    // --- Function to Load PDF into Viewer ---
     function loadPDF(indexInFilteredList) {
       if (indexInFilteredList < 0 || indexInFilteredList >= currentFilteredPdfs.length) {
         console.error("Invalid PDF index for loading.");
@@ -366,7 +189,7 @@
         pdfjsLib.getDocument(typedArray).promise.then(function (pdf) {
           pdfDoc = pdf;
           document.getElementById('page-count').textContent = pdf.numPages;
-          pageNum = 1;
+          pageNum = 1; // Reset to page 1 for new document
           renderPage(pageNum);
         }).catch(function(error) {
             console.error('Error loading PDF:', error);
@@ -376,12 +199,13 @@
       fileReader.readAsArrayBuffer(file);
     }
 
+    // --- Function to Render PDF Page ---
     function renderPage(num) {
       pageRendering = true;
       return pdfDoc.getPage(num).then(function (page) {
-        const initialViewport = page.getViewport({ scale: 1.0})
+        const initialViewport = page.getViewport({ scale: 1.0});
 
-        const viewrWidth = viewerDiv.clientWidth;
+        const viewerWidth = viewerDiv.clientWidth;
         let calculatedScale = viewerWidth / initialViewport.width;
 
         const devicePixelRatio = window.devicePixelRatio || 1;
@@ -393,7 +217,7 @@
         canvas.width = viewport.width;
 
         canvas.style.width = viewerWidth + 'px';
-        canvas.style.height = (viewport.height / viewport.width) + 'px';
+        canvas.style.height = (viewport.height / devicePixelRatio) + 'px'; // Corrected aspect ratio calculation
 
         const renderContext = { canvasContext: ctx, viewport: viewport };
         const renderTask = page.render(renderContext);
@@ -406,15 +230,17 @@
           }
         });
         document.getElementById('page-num').textContent = num;
-        return page;
+        return page; // Return page for chaining (e.g., for highlightMatch)
       });
     }
 
+    // --- Document Select (Dropdown) Change Listener ---
     docSelect.addEventListener('change', () => {
       const index = parseInt(docSelect.value, 10);
       if (!isNaN(index)) loadPDF(index);
     });
 
+    // --- Previous/Next Page Buttons ---
     document.getElementById('prev').addEventListener('click', () => {
       if (pageNum <= 1) return;
       pageNum--;
@@ -422,11 +248,12 @@
     });
 
     document.getElementById('next').addEventListener('click', () => {
-      if (pdfDoc &&pageNum >= pdfDoc.numPages) return;
+      if (pdfDoc && pageNum >= pdfDoc.numPages) return;
       pageNum++;
       queueRenderPage(pageNum);
     });
 
+    // --- Queue Render Page (prevents rendering multiple pages at once) ---
     function queueRenderPage(num) {
       if (pageRendering) {
         pageNumPending = num;
@@ -434,6 +261,208 @@
         renderPage(num);
       }
     }
+
+    // --- Search Functionality (from your existing code, integrated into the single script block) ---
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let searchQuery = '';
+    let textLayerDiv = null; // Declare this globally if used in highlightMatch
+
+    document.getElementById('search-input').addEventListener('input', async function() {
+      searchQuery = this.value.trim().toLowerCase();
+      if (!pdfDoc || !searchQuery) {
+        clearHighlights();
+        document.getElementById('search-results').innerHTML = '';
+        document.getElementById('search-navigation').style.display = 'none';
+        return;
+      }
+
+      document.getElementById('search-results').innerHTML = 'Searching...';
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      const totalPages = pdfDoc.numPages;
+      let processedPages = 0;
+
+      for (let i = 1; i <= totalPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const textContent = await page.getTextContent();
+
+        const textItems = textContent.items;
+        let pageMatches = [];
+
+        textItems.forEach((item, itemIndex) => {
+          const itemText = item.str.toLowerCase();
+          if (itemText.includes(searchQuery)) {
+            const startIndices = [];
+            let index = item.str.toLowerCase().indexOf(searchQuery);
+            while (index !== -1) {
+              startIndices.push(index);
+              index = item.str.toLowerCase().indexOf(searchQuery, index + 1);
+            }
+
+            startIndices.forEach(startIndex => {
+              pageMatches.push({
+                pageNum: i,
+                itemIndex,
+                startIndex,
+                endIndex: startIndex + searchQuery.length,
+                text: item.str
+              });
+            });
+          }
+        });
+
+        if (pageMatches.length > 0) {
+          searchMatches.push(...pageMatches);
+        }
+
+        processedPages++;
+        if (processedPages === totalPages) {
+          updateSearchResults();
+        }
+      }
+    });
+
+    function updateSearchResults() {
+      const resultsContainer = document.getElementById('search-results');
+      const searchNav = document.getElementById('search-navigation');
+
+      if (searchMatches.length === 0) {
+        resultsContainer.innerHTML = 'No matches found';
+        searchNav.style.display = 'none';
+        return;
+      }
+
+      const matchesByPage = {};
+      searchMatches.forEach(match => {
+        if (!matchesByPage[match.pageNum]) {
+          matchesByPage[match.pageNum] = [];
+        }
+        matchesByPage[match.pageNum].push(match);
+      });
+
+      let resultsHTML = `<div>Found ${searchMatches.length} match(es) on ${Object.keys(matchesByPage).length} page(s):</div>`;
+
+      for (const pageNum in matchesByPage) {
+        const pageMatches = matchesByPage[pageNum];
+        resultsHTML += `<div class="search-result" data-page="${pageNum}">Page ${pageNum}: ${pageMatches.length} match(es)</div>`;
+      }
+
+      resultsContainer.innerHTML = resultsHTML;
+      searchNav.style.display = 'flex';
+      document.getElementById('match-count').textContent = `Match ${currentMatchIndex + 1} of ${searchMatches.length}`;
+
+      document.querySelectorAll('.search-result').forEach(el => {
+        el.addEventListener('click', () => {
+          const pageNum = parseInt(el.getAttribute('data-page'));
+          const firstMatchOnPage = searchMatches.find(m => m.pageNum === pageNum);
+          if (firstMatchOnPage) {
+            currentMatchIndex = searchMatches.indexOf(firstMatchOnPage);
+            goToMatch(currentMatchIndex);
+          }
+        });
+      });
+
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        goToMatch(currentMatchIndex);
+      }
+    }
+
+    function goToMatch(index) {
+      if (index < 0 || index >= searchMatches.length) return;
+
+      const match = searchMatches[index];
+      currentMatchIndex = index;
+
+      document.getElementById('match-count').textContent = `Match ${index + 1} of ${searchMatches.length}`;
+
+      if (pageNum !== match.pageNum) {
+        pageNum = match.pageNum;
+        renderPage(pageNum).then((renderedPage) => {
+          highlightMatch(match, renderedPage);
+        });
+      } else {
+        pdfDoc.getPage(pageNum).then((currentPage) => {
+          highlightMatch(match, currentPage);
+        });
+      }
+    }
+
+    async function highlightMatch(match, page) {
+      clearHighlights();
+
+      const textContent = await page.getTextContent();
+      const textItem = textContent.items[match.itemIndex];
+
+      // Declare textLayerDiv here or ensure it's globally available
+      if (!textLayerDiv) {
+          textLayerDiv = document.createElement('div');
+          textLayerDiv.className = 'textLayer';
+          textLayerDiv.style.position = 'absolute';
+      }
+
+      // Ensure this is called AFTER pdfDoc is defined, or handle null case
+      const optimalScale = await getOptimalScale(); // Await the promise
+      const viewport = page.getViewport({ scale: optimalScale });
+
+      textLayerDiv.style.left = canvas.offsetLeft + 'px';
+      textLayerDiv.style.top = canvas.offsetTop + 'px';
+      textLayerDiv.style.width = canvas.style.width;
+      textLayerDiv.style.height = canvas.style.height;
+      document.body.appendChild(textLayerDiv);
+
+      const textGeometry = pdfjsLib.TextLayer.renderTextLayer({
+        textContent: {
+          items: [textItem]
+        },
+        container: textLayerDiv,
+        viewport: viewport,
+        textDivs: []
+      });
+
+      setTimeout(() => {
+        const textDiv = textLayerDiv.querySelector('.textLayer div');
+        if (textDiv) {
+          const range = document.createRange();
+          const textNode = textDiv.childNodes[0];
+
+          range.setStart(textNode, match.startIndex);
+          range.setEnd(textNode, match.endIndex);
+
+          const highlight = document.createElement('span');
+          highlight.className = 'highlight';
+          range.surroundContents(highlight);
+
+          highlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        setTimeout(() => {
+            if(textLayerDiv && textLayerDiv.parentNode) { // Check if it's still attached
+                textLayerDiv.remove();
+            }
+        }, 1000);
+      }, 100);
+    }
+
+    function clearHighlights() {
+      document.querySelectorAll('.highlight').forEach(el => {
+        el.outerHTML = el.innerHTML;
+      });
+      // Also remove the textLayerDiv if it exists and contains old highlights
+      if (textLayerDiv && textLayerDiv.parentNode) {
+          textLayerDiv.remove();
+          textLayerDiv = null; // Reset it so it gets recreated
+      }
+    }
+
+    // Call populateFolderFilter and then filterAndRenderDocs on initial load
+    document.addEventListener('DOMContentLoaded', () => {
+        populateFolderFilter();
+        // filterAndRenderDocs() is called by populateFolderFilter, so no need here
+    });
+
   </script>
 </body>
 </html>
