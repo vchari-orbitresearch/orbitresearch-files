@@ -155,39 +155,41 @@
     // Go to page and highlight
     if (pageNum !== match.pageNum) {
       pageNum = match.pageNum;
-      renderPage(pageNum).then(() => {
-        highlightMatch(match);
+      renderPage(pageNum).then((renderedPage) => {
+        highlightMatch(match, renderedPage);
       });
     } else {
-      highlightMatch(match);
+      pdfDoc.getPage(pageNum).then((currentPage) => {
+        highlightMatch(match, currentPage);
+      });
     }
   }
 
-  async function highlightMatch(match) {
+  async function highlightMatch(match, page) {
     clearHighlights();
     
-    const page = await pdfDoc.getPage(match.pageNum);
     const textContent = await page.getTextContent();
     const textItem = textContent.items[match.itemIndex];
-    
-    // Get the text element position
-    const viewport = page.getViewport({ scale: scale });
-    const textLayerDiv = document.createElement('div');
-    textLayerDiv.style.position = 'absolute';
+
+    // Recalculate viewport for highlighting, using the same scale as renderPage
+    const scaleToRender = getOptimalScale(); // Ensure this matches renderPage's scale
+    const viewport = page.getViewport({ scale: scaleToRender }); // Use the page object here
+
+    // ... rest of your highlightMatch code remains similar
+    // Ensure textLayerDiv's dimensions are also based on the displayed canvas size
     textLayerDiv.style.left = canvas.offsetLeft + 'px';
     textLayerDiv.style.top = canvas.offsetTop + 'px';
-    textLayerDiv.style.width = canvas.width + 'px';
-    textLayerDiv.style.height = canvas.height + 'px';
+    textLayerDiv.style.width = canvas.style.width; // Use displayed width
+    textLayerDiv.style.height = canvas.style.height; // Use displayed height
     document.body.appendChild(textLayerDiv);
-    
-    // Create highlight element
+
     const textGeometry = pdfjsLib.TextLayer.renderTextLayer({
-      textContent: {
-        items: [textItem]
-      },
-      container: textLayerDiv,
-      viewport: viewport,
-      textDivs: []
+        textContent: {
+            items: [textItem]
+        },
+        container: textLayerDiv,
+        viewport: viewport, // Use the dynamically calculated viewport
+        textDivs: []
     });
     
     // Wait for text layer to render
@@ -258,7 +260,10 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null;
-    const scale = 1.5, canvas = document.getElementById('pdf-canvas'), ctx = canvas.getContext('2d');
+    const baseScale = 1.5; // Your desired base scale
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const scale = baseScale * devicePixelRatio;
+    canvas = document.getElementById('pdf-canvas'), ctx = canvas.getContext('2d');
     const docSelect = document.getElementById('doc-select');
     let loadedFiles = [];
 
@@ -306,11 +311,25 @@
     function renderPage(num) {
       pageRendering = true;
       return pdfDoc.getPage(num).then(function (page) {
-        const viewport = page.getViewport({ scale: scale });
+        const initialViewport = page.getViewport({ scale: 1.0})
+
+        const viewrWidth = viewerDiv.clientWidth;
+        let calculatedScale = viewerWidth / initialViewport.width;
+
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        const finalRenderScale = calculatedScale * devicePixelRatio;
+
+        const viewport = page.getViewport({ scale: finalRenderScale });
+
         canvas.height = viewport.height;
         canvas.width = viewport.width;
+
+        canvas.style.width = viewerWidth + 'px';
+        canvas.style.height = (viewport.height / viewport.width) + 'px';
+
         const renderContext = { canvasContext: ctx, viewport: viewport };
         const renderTask = page.render(renderContext);
+
         renderTask.promise.then(function () {
           pageRendering = false;
           if (pageNumPending !== null) {
