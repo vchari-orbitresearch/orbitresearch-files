@@ -11,42 +11,232 @@
     #controls, #viewer { margin-top: 1rem; }
     canvas { width: 100%; border: 1px solid #ccc; }
     select, input[type="file"], button { margin: 0.5rem 0; display: block; }
+    .highlight { background-color: yellow; }
+    .search-nav { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+    .search-result { cursor: pointer; color: blue; text-decoration: underline; }
+    .search-result:hover { color: darkblue; }
   </style>
 </head>
 <body>
 <input type="text" id="search-input" placeholder="Search in PDF..." style="width: 100%; margin-top: 1rem;" />
 <div id="search-results" style="margin-top: 0.5rem;"></div>
+<div id="search-navigation" class="search-nav" style="display: none;">
+  <button id="prev-match">Previous Match</button>
+  <button id="next-match">Next Match</button>
+  <span id="match-count"></span>
+</div>
 
 <script>
-  document.getElementById('search-input').addEventListener('input', function () {
-    const query = this.value.toLowerCase();
-    if (!pdfDoc || !query) return;
+  // PDF.js setup and other existing code remains the same until the search section
 
-    const resultsContainer = document.getElementById('search-results');
-    resultsContainer.innerHTML = 'Searching...';
+  // Search functionality variables
+  let searchMatches = [];
+  let currentMatchIndex = -1;
+  let searchQuery = '';
 
-    let matches = [];
-    let totalPages = pdfDoc.numPages;
-    let processed = 0;
+  document.getElementById('search-input').addEventListener('input', async function() {
+    searchQuery = this.value.trim().toLowerCase();
+    if (!pdfDoc || !searchQuery) {
+      clearHighlights();
+      document.getElementById('search-results').innerHTML = '';
+      document.getElementById('search-navigation').style.display = 'none';
+      return;
+    }
+
+    document.getElementById('search-results').innerHTML = 'Searching...';
+    searchMatches = [];
+    currentMatchIndex = -1;
+
+    const totalPages = pdfDoc.numPages;
+    let processedPages = 0;
 
     for (let i = 1; i <= totalPages; i++) {
-      pdfDoc.getPage(i).then(page => {
-        page.getTextContent().then(textContent => {
-          const text = textContent.items.map(item => item.str).join(' ').toLowerCase();
-          if (text.includes(query)) {
-            matches.push(i);
+      const page = await pdfDoc.getPage(i);
+      const textContent = await page.getTextContent();
+      
+      const textItems = textContent.items;
+      let pageText = '';
+      let pageMatches = [];
+
+      // Process each text item to find matches
+      textItems.forEach((item, itemIndex) => {
+        const itemText = item.str.toLowerCase();
+        if (itemText.includes(searchQuery)) {
+          const startIndices = [];
+          let index = item.str.toLowerCase().indexOf(searchQuery);
+          while (index !== -1) {
+            startIndices.push(index);
+            index = item.str.toLowerCase().indexOf(searchQuery, index + 1);
           }
-          processed++;
-          if (processed === totalPages) {
-            resultsContainer.innerHTML = matches.length
-              ? 'Matches found on page(s): ' + matches.join(', ')
-              : 'No matches found';
-          }
-        });
+          
+          startIndices.forEach(startIndex => {
+            pageMatches.push({
+              pageNum: i,
+              itemIndex,
+              startIndex,
+              endIndex: startIndex + searchQuery.length,
+              text: item.str
+            });
+          });
+        }
+        pageText += item.str + ' ';
       });
+
+      if (pageMatches.length > 0) {
+        searchMatches.push(...pageMatches);
+      }
+
+      processedPages++;
+      if (processedPages === totalPages) {
+        updateSearchResults();
+      }
     }
   });
+
+  function updateSearchResults() {
+    const resultsContainer = document.getElementById('search-results');
+    const searchNav = document.getElementById('search-navigation');
+    
+    if (searchMatches.length === 0) {
+      resultsContainer.innerHTML = 'No matches found';
+      searchNav.style.display = 'none';
+      return;
+    }
+
+    // Group matches by page
+    const matchesByPage = {};
+    searchMatches.forEach(match => {
+      if (!matchesByPage[match.pageNum]) {
+        matchesByPage[match.pageNum] = [];
+      }
+      matchesByPage[match.pageNum].push(match);
+    });
+
+    // Display results
+    let resultsHTML = `<div>Found ${searchMatches.length} match(es) on ${Object.keys(matchesByPage).length} page(s):</div>`;
+    
+    for (const pageNum in matchesByPage) {
+      const pageMatches = matchesByPage[pageNum];
+      resultsHTML += `<div class="search-result" data-page="${pageNum}">Page ${pageNum}: ${pageMatches.length} match(es)</div>`;
+    }
+
+    resultsContainer.innerHTML = resultsHTML;
+    searchNav.style.display = 'flex';
+    document.getElementById('match-count').textContent = `Match ${currentMatchIndex + 1} of ${searchMatches.length}`;
+
+    // Add click handlers to page results
+    document.querySelectorAll('.search-result').forEach(el => {
+      el.addEventListener('click', () => {
+        const pageNum = parseInt(el.getAttribute('data-page'));
+        const firstMatchOnPage = searchMatches.find(m => m.pageNum === pageNum);
+        if (firstMatchOnPage) {
+          currentMatchIndex = searchMatches.indexOf(firstMatchOnPage);
+          goToMatch(currentMatchIndex);
+        }
+      });
+    });
+
+    // Go to first match if any
+    if (searchMatches.length > 0) {
+      currentMatchIndex = 0;
+      goToMatch(currentMatchIndex);
+    }
+  }
+
+  function goToMatch(index) {
+    if (index < 0 || index >= searchMatches.length) return;
+    
+    const match = searchMatches[index];
+    currentMatchIndex = index;
+    
+    // Update UI
+    document.getElementById('match-count').textContent = `Match ${index + 1} of ${searchMatches.length}`;
+    
+    // Go to page and highlight
+    if (pageNum !== match.pageNum) {
+      pageNum = match.pageNum;
+      renderPage(pageNum).then(() => {
+        highlightMatch(match);
+      });
+    } else {
+      highlightMatch(match);
+    }
+  }
+
+  async function highlightMatch(match) {
+    clearHighlights();
+    
+    const page = await pdfDoc.getPage(match.pageNum);
+    const textContent = await page.getTextContent();
+    const textItem = textContent.items[match.itemIndex];
+    
+    // Get the text element position
+    const viewport = page.getViewport({ scale: scale });
+    const textLayerDiv = document.createElement('div');
+    textLayerDiv.style.position = 'absolute';
+    textLayerDiv.style.left = canvas.offsetLeft + 'px';
+    textLayerDiv.style.top = canvas.offsetTop + 'px';
+    textLayerDiv.style.width = canvas.width + 'px';
+    textLayerDiv.style.height = canvas.height + 'px';
+    document.body.appendChild(textLayerDiv);
+    
+    // Create highlight element
+    const textGeometry = pdfjsLib.TextLayer.renderTextLayer({
+      textContent: {
+        items: [textItem]
+      },
+      container: textLayerDiv,
+      viewport: viewport,
+      textDivs: []
+    });
+    
+    // Wait for text layer to render
+    setTimeout(() => {
+      const textDiv = textLayerDiv.querySelector('.textLayer div');
+      if (textDiv) {
+        const range = document.createRange();
+        const textNode = textDiv.childNodes[0];
+        
+        range.setStart(textNode, match.startIndex);
+        range.setEnd(textNode, match.endIndex);
+        
+        const highlight = document.createElement('span');
+        highlight.className = 'highlight';
+        range.surroundContents(highlight);
+        
+        // Scroll to highlight
+        highlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      
+      // Clean up
+      setTimeout(() => textLayerDiv.remove(), 1000);
+    }, 100);
+  }
+
+  function clearHighlights() {
+    document.querySelectorAll('.highlight').forEach(el => {
+      el.outerHTML = el.innerHTML;
+    });
+  }
+
+  // Navigation between matches
+  document.getElementById('prev-match').addEventListener('click', () => {
+    if (currentMatchIndex > 0) {
+      currentMatchIndex--;
+      goToMatch(currentMatchIndex);
+    }
+  });
+
+  document.getElementById('next-match').addEventListener('click', () => {
+    if (currentMatchIndex < searchMatches.length - 1) {
+      currentMatchIndex++;
+      goToMatch(currentMatchIndex);
+    }
+  });
+
+  // Rest of your existing PDF viewer code remains the same...
 </script>
+
   <h2>PDF Navigator</h2>
   <input type="file" id="file-input" accept="application/pdf" multiple />
   <select id="doc-select"></select>
@@ -115,7 +305,7 @@
 
     function renderPage(num) {
       pageRendering = true;
-      pdfDoc.getPage(num).then(function (page) {
+      return pdfDoc.getPage(num).then(function (page) {
         const viewport = page.getViewport({ scale: scale });
         canvas.height = viewport.height;
         canvas.width = viewport.width;
@@ -128,8 +318,9 @@
             pageNumPending = null;
           }
         });
+        document.getElementById('page-num').textContent = num;
+        return page;
       });
-      document.getElementById('page-num').textContent = num;
     }
 
     document.getElementById('prev').addEventListener('click', () => {
