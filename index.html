@@ -58,8 +58,8 @@
     const canvas = document.getElementById('pdf-canvas');
     const ctx = canvas.getContext('2d');
     const docSelect = document.getElementById('doc-select');
-    const folderFilterSelect = document.getElementById('folder-filter-select'); // Correctly declared here
-    const viewerDiv = document.getElementById('viewer'); // Make sure this is linked to your viewer div
+    const folderFilterSelect = document.getElementById('folder-filter-select');
+    const viewerDiv = document.getElementById('viewer');
 
     // --- Data Storage for Files ---
     let allLoadedPdfs = []; // Stores ALL uploaded PDF File objects
@@ -75,15 +75,14 @@
     };
 
     // --- Helper function for optimal scale ---
-    function getOptimalScale() {
-      const viewerWidth = viewerDiv.clientWidth; // Get the effective width of the viewer area
+    async function getOptimalScale() { // Made async because it awaits pdfDoc.getPage
+      const viewerWidth = viewerDiv.clientWidth;
       if (!pdfDoc) return 1.0; // Default if no PDF is loaded
-      const initialViewport = pdfDoc.getPage(pageNum).then(page => page.getViewport({ scale: 1.0 }));
-      return initialViewport.then(viewport => {
-          let calculatedScale = viewerWidth / viewport.width;
-          const devicePixelRatio = window.devicePixelRatio || 1;
-          return calculatedScale * devicePixelRatio;
-      });
+      const page = await pdfDoc.getPage(pageNum); // Get the current page
+      const initialViewport = page.getViewport({ scale: 1.0 });
+      let calculatedScale = viewerWidth / initialViewport.width;
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      return calculatedScale * devicePixelRatio;
     }
 
     // --- Function to populate the folder filter dropdown ---
@@ -97,8 +96,7 @@
       }
       // Select "All Files" by default
       folderFilterSelect.value = "All Files";
-      // After populating, immediately filter and render docs based on the default selection
-      filterAndRenderDocs();
+      // No need to call filterAndRenderDocs here, as it's called by DOMContentLoaded
     }
 
     // --- Event Listener for File Upload Input ---
@@ -200,24 +198,18 @@
     }
 
     // --- Function to Render PDF Page ---
-    function renderPage(num) {
+    async function renderPage(num) { // Made async to await getOptimalScale
       pageRendering = true;
-      return pdfDoc.getPage(num).then(function (page) {
-        const initialViewport = page.getViewport({ scale: 1.0});
-
-        const viewerWidth = viewerDiv.clientWidth;
-        let calculatedScale = viewerWidth / initialViewport.width;
-
-        const devicePixelRatio = window.devicePixelRatio || 1;
-        const finalRenderScale = calculatedScale * devicePixelRatio;
-
-        const viewport = page.getViewport({ scale: finalRenderScale });
+      return pdfDoc.getPage(num).then(async function (page) { // Now 'page' is available here
+        const optimalScale = await getOptimalScale(); // Await the promise from getOptimalScale
+        const viewport = page.getViewport({ scale: optimalScale });
 
         canvas.height = viewport.height;
         canvas.width = viewport.width;
 
-        canvas.style.width = viewerWidth + 'px';
-        canvas.style.height = (viewport.height / devicePixelRatio) + 'px'; // Corrected aspect ratio calculation
+        // Corrected calculation for display height, maintaining aspect ratio
+        canvas.style.width = viewerDiv.clientWidth + 'px'; // Set displayed width to viewer's width
+        canvas.style.height = (viewport.height / (window.devicePixelRatio || 1)) + 'px'; // Scale down displayed height based on pixel ratio
 
         const renderContext = { canvasContext: ctx, viewport: viewport };
         const renderTask = page.render(renderContext);
@@ -266,7 +258,7 @@
     let searchMatches = [];
     let currentMatchIndex = -1;
     let searchQuery = '';
-    let textLayerDiv = null; // Declare this globally if used in highlightMatch
+    let textLayerDiv = null; // Declare this globally for search highlights
 
     document.getElementById('search-input').addEventListener('input', async function() {
       searchQuery = this.value.trim().toLowerCase();
@@ -396,17 +388,16 @@
       const textContent = await page.getTextContent();
       const textItem = textContent.items[match.itemIndex];
 
-      // Declare textLayerDiv here or ensure it's globally available
       if (!textLayerDiv) {
           textLayerDiv = document.createElement('div');
           textLayerDiv.className = 'textLayer';
           textLayerDiv.style.position = 'absolute';
       }
 
-      // Ensure this is called AFTER pdfDoc is defined, or handle null case
-      const optimalScale = await getOptimalScale(); // Await the promise
+      const optimalScale = await getOptimalScale();
       const viewport = page.getViewport({ scale: optimalScale });
 
+      // Position the textLayerDiv relative to the canvas's displayed size
       textLayerDiv.style.left = canvas.offsetLeft + 'px';
       textLayerDiv.style.top = canvas.offsetTop + 'px';
       textLayerDiv.style.width = canvas.style.width;
@@ -439,7 +430,7 @@
         }
 
         setTimeout(() => {
-            if(textLayerDiv && textLayerDiv.parentNode) { // Check if it's still attached
+            if(textLayerDiv && textLayerDiv.parentNode) {
                 textLayerDiv.remove();
             }
         }, 1000);
@@ -450,17 +441,17 @@
       document.querySelectorAll('.highlight').forEach(el => {
         el.outerHTML = el.innerHTML;
       });
-      // Also remove the textLayerDiv if it exists and contains old highlights
       if (textLayerDiv && textLayerDiv.parentNode) {
           textLayerDiv.remove();
-          textLayerDiv = null; // Reset it so it gets recreated
+          textLayerDiv = null;
       }
     }
 
-    // Call populateFolderFilter and then filterAndRenderDocs on initial load
+    // --- Initial setup on page load ---
     document.addEventListener('DOMContentLoaded', () => {
         populateFolderFilter();
-        // filterAndRenderDocs() is called by populateFolderFilter, so no need here
+        // filterAndRenderDocs() will be called by populateFolderFilter()
+        // so no need to call it directly here again.
     });
 
   </script>
