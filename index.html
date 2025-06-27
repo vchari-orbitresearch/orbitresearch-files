@@ -1,38 +1,23 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PDF Navigator</title>
-  <link rel="manifest" href="manifest.json" />
-  <meta name="theme-color" content="#ffffff" />
-  <style>
-    body { font-family: Arial; margin: 0; padding: 1rem; }
-    #controls, #viewer { margin-top: 1rem; }
-    canvas { width: 100%; border: 1px solid #ccc; }
-    select, input[type="file"], button { margin: 0.5rem 0; display: block; }
-    .highlight { background-color: yellow; }
-    .search-nav { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
-    .search-result { cursor: pointer; color: blue; text-decoration: underline; }
-    .search-result:hover { color: darkblue; }
-  </style>
-</head>
-<body>
-<input type="text" id="search-input" placeholder="Search in PDF..." style="width: 100%; margin-top: 1rem;" />
-<div id="search-results" style="margin-top: 0.5rem;"></div>
-<div id="search-navigation" class="search-nav" style="display: none;">
-  <button id="prev-match">Previous Match</button>
-  <button id="next-match">Next Match</button>
-  <span id="match-count"></span>
-</div>
+<!-- Add this CSS in the head section -->
+<style>
+  .highlight {
+    background-color: yellow;
+    opacity: 0.7;
+    border-radius: 2px;
+  }
+  .highlight.active {
+    background-color: orange;
+    opacity: 0.9;
+  }
+</style>
 
+<!-- Replace the search script section with this improved version -->
 <script>
-  // PDF.js setup and other existing code remains the same until the search section
-
   // Search functionality variables
   let searchMatches = [];
   let currentMatchIndex = -1;
   let searchQuery = '';
+  let textLayer = null;
 
   document.getElementById('search-input').addEventListener('input', async function() {
     searchQuery = this.value.trim().toLowerCase();
@@ -58,26 +43,20 @@
       let pageText = '';
       let pageMatches = [];
 
-      // Process each text item to find matches
       textItems.forEach((item, itemIndex) => {
         const itemText = item.str.toLowerCase();
         if (itemText.includes(searchQuery)) {
-          const startIndices = [];
           let index = item.str.toLowerCase().indexOf(searchQuery);
           while (index !== -1) {
-            startIndices.push(index);
-            index = item.str.toLowerCase().indexOf(searchQuery, index + 1);
-          }
-          
-          startIndices.forEach(startIndex => {
             pageMatches.push({
               pageNum: i,
               itemIndex,
-              startIndex,
-              endIndex: startIndex + searchQuery.length,
+              startIndex: index,
+              endIndex: index + searchQuery.length,
               text: item.str
             });
-          });
+            index = item.str.toLowerCase().indexOf(searchQuery, index + 1);
+          }
         }
         pageText += item.str + ' ';
       });
@@ -143,7 +122,7 @@
     }
   }
 
-  function goToMatch(index) {
+  async function goToMatch(index) {
     if (index < 0 || index >= searchMatches.length) return;
     
     const match = searchMatches[index];
@@ -155,68 +134,78 @@
     // Go to page and highlight
     if (pageNum !== match.pageNum) {
       pageNum = match.pageNum;
-      renderPage(pageNum).then(() => {
-        highlightMatch(match);
-      });
-    } else {
-      highlightMatch(match);
+      await renderPage(pageNum);
     }
+    highlightMatch(match);
   }
 
-  async function highlightMatch(match) {
+  function highlightMatch(match) {
     clearHighlights();
     
-    const page = await pdfDoc.getPage(match.pageNum);
-    const textContent = await page.getTextContent();
-    const textItem = textContent.items[match.itemIndex];
+    // Create a persistent text layer if it doesn't exist
+    if (!textLayer) {
+      textLayer = document.createElement('div');
+      textLayer.className = 'textLayer';
+      textLayer.style.position = 'absolute';
+      textLayer.style.left = canvas.offsetLeft + 'px';
+      textLayer.style.top = canvas.offsetTop + 'px';
+      textLayer.style.width = canvas.width + 'px';
+      textLayer.style.height = canvas.height + 'px';
+      textLayer.style.pointerEvents = 'none'; // Allow clicks to pass through
+      document.body.appendChild(textLayer);
+    }
     
-    // Get the text element position
-    const viewport = page.getViewport({ scale: scale });
-    const textLayerDiv = document.createElement('div');
-    textLayerDiv.style.position = 'absolute';
-    textLayerDiv.style.left = canvas.offsetLeft + 'px';
-    textLayerDiv.style.top = canvas.offsetTop + 'px';
-    textLayerDiv.style.width = canvas.width + 'px';
-    textLayerDiv.style.height = canvas.height + 'px';
-    document.body.appendChild(textLayerDiv);
-    
-    // Create highlight element
-    const textGeometry = pdfjsLib.TextLayer.renderTextLayer({
-      textContent: {
-        items: [textItem]
-      },
-      container: textLayerDiv,
-      viewport: viewport,
-      textDivs: []
-    });
-    
-    // Wait for text layer to render
-    setTimeout(() => {
-      const textDiv = textLayerDiv.querySelector('.textLayer div');
-      if (textDiv) {
-        const range = document.createRange();
-        const textNode = textDiv.childNodes[0];
+    pdfDoc.getPage(match.pageNum).then(page => {
+      const viewport = page.getViewport({ scale: scale });
+      
+      page.getTextContent().then(textContent => {
+        // Clear previous content
+        textLayer.innerHTML = '';
         
+        // Create text div for the matched item
+        const textDiv = document.createElement('div');
+        textDiv.style.position = 'absolute';
+        textDiv.style.left = '0';
+        textDiv.style.top = '0';
+        textDiv.style.lineHeight = '1';
+        textDiv.dataset.itemIndex = match.itemIndex;
+        
+        // Add the text content
+        const textNode = document.createTextNode(textContent.items[match.itemIndex].str);
+        textDiv.appendChild(textNode);
+        textLayer.appendChild(textDiv);
+        
+        // Position the text element
+        pdfjsLib.TextLayer.renderTextLayer({
+          textContent: {
+            items: [textContent.items[match.itemIndex]]
+          },
+          container: textLayer,
+          viewport: viewport,
+          textDivs: [textDiv]
+        });
+        
+        // Highlight the matched portion
+        const range = document.createRange();
         range.setStart(textNode, match.startIndex);
         range.setEnd(textNode, match.endIndex);
         
-        const highlight = document.createElement('span');
-        highlight.className = 'highlight';
-        range.surroundContents(highlight);
+        const highlightSpan = document.createElement('span');
+        highlightSpan.className = 'highlight active';
+        range.surroundContents(highlightSpan);
         
-        // Scroll to highlight
-        highlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-      
-      // Clean up
-      setTimeout(() => textLayerDiv.remove(), 1000);
-    }, 100);
+        // Scroll to the highlight
+        highlightSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
   }
 
   function clearHighlights() {
-    document.querySelectorAll('.highlight').forEach(el => {
-      el.outerHTML = el.innerHTML;
-    });
+    if (textLayer) {
+      textLayer.querySelectorAll('.highlight').forEach(el => {
+        el.classList.remove('active');
+      });
+    }
   }
 
   // Navigation between matches
@@ -233,115 +222,4 @@
       goToMatch(currentMatchIndex);
     }
   });
-
-  // Rest of your existing PDF viewer code remains the same...
 </script>
-
-  <h2>PDF Navigator</h2>
-  <input type="file" id="file-input" accept="application/pdf" multiple />
-  <select id="doc-select"></select>
-  <div id="controls" style="display:none;">
-    <button id="prev">Previous</button>
-    <button id="next">Next</button>
-    Page <span id="page-num">1</span> / <span id="page-count">--</span>
-  </div>
-  <div id="viewer">
-    <canvas id="pdf-canvas"></canvas>
-  </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js');
-    }
-
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
-    let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null;
-    const scale = 1.5, canvas = document.getElementById('pdf-canvas'), ctx = canvas.getContext('2d');
-    const docSelect = document.getElementById('doc-select');
-    let loadedFiles = [];
-
-    document.getElementById('file-input').addEventListener('change', (e) => {
-      const files = Array.from(e.target.files);
-      loadedFiles.push(...files);
-      renderDocSelect();
-    });
-
-    docSelect.addEventListener('change', () => {
-      const index = parseInt(docSelect.value, 10);
-      if (!isNaN(index)) loadPDF(index);
-    });
-
-    function renderDocSelect() {
-      docSelect.innerHTML = '';
-      loadedFiles.forEach((file, index) => {
-        const option = document.createElement('option');
-        option.textContent = file.name;
-        option.value = index;
-        docSelect.appendChild(option);
-      });
-      if (loadedFiles.length > 0) {
-        docSelect.selectedIndex = loadedFiles.length - 1;
-        loadPDF(loadedFiles.length - 1);
-      }
-    }
-
-    function loadPDF(index) {
-      const file = loadedFiles[index];
-      const fileReader = new FileReader();
-      fileReader.onload = function () {
-        const typedArray = new Uint8Array(this.result);
-        pdfjsLib.getDocument(typedArray).promise.then(function (pdf) {
-          pdfDoc = pdf;
-          document.getElementById('controls').style.display = 'block';
-          document.getElementById('page-count').textContent = pdf.numPages;
-          pageNum = 1;
-          renderPage(pageNum);
-        });
-      };
-      fileReader.readAsArrayBuffer(file);
-    }
-
-    function renderPage(num) {
-      pageRendering = true;
-      return pdfDoc.getPage(num).then(function (page) {
-        const viewport = page.getViewport({ scale: scale });
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        const renderContext = { canvasContext: ctx, viewport: viewport };
-        const renderTask = page.render(renderContext);
-        renderTask.promise.then(function () {
-          pageRendering = false;
-          if (pageNumPending !== null) {
-            renderPage(pageNumPending);
-            pageNumPending = null;
-          }
-        });
-        document.getElementById('page-num').textContent = num;
-        return page;
-      });
-    }
-
-    document.getElementById('prev').addEventListener('click', () => {
-      if (pageNum <= 1) return;
-      pageNum--;
-      queueRenderPage(pageNum);
-    });
-
-    document.getElementById('next').addEventListener('click', () => {
-      if (pageNum >= pdfDoc.numPages) return;
-      pageNum++;
-      queueRenderPage(pageNum);
-    });
-
-    function queueRenderPage(num) {
-      if (pageRendering) {
-        pageNumPending = num;
-      } else {
-        renderPage(num);
-      }
-    }
-  </script>
-</body>
-</html>
