@@ -18,11 +18,12 @@ h1 {
   background: white;
   padding: 0.5rem 1rem;
   margin: 0 !important;
+  margin-bottom: 1rem;
 }
 
 /* PUSH CONTENT DOWN */
-#search-input {
-  margin-bottom: 0rem !important;
+#search-content {
+  margin-bottom: 3.5rem !important;
 }
 
 
