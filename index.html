@@ -6,37 +6,35 @@
   <title>PDF Navigator</title>
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#ffffff" />
-  <style>
-    body { font-family: Arial; margin: 0; padding: 1rem; }
-    #controls, #viewer { margin-top: 1rem; }
-    canvas { width: 100%; border: 1px solid #ccc; }
-    select, input[type="file"], button { margin: 0.5rem 0; display: block; }
-    .highlight { background-color: yellow; }
-    .search-nav { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
-    .search-result { cursor: pointer; color: blue; text-decoration: underline; }
-    .search-result:hover { color: darkblue; }
-  </style>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <input type="text" id="search-input" placeholder="Search in PDF..." style="width: 100%; margin-top: 1rem;" />
   <div id="search-results" style="margin-top: 0.5rem;"></div>
-  <div id="search-navigation" class="search-nav" style="display: none;">
+  <div id="search-navigation" class="search-nav" style="visibility: hidden;">
     <button id="prev-match">Previous Match</button>
     <button id="next-match">Next Match</button>
     <span id="match-count"></span>
   </div>
 
   <h2>PDF Navigator</h2>
-  <input type="file" id="file-input" accept="application/pdf" multiple />
-  <select id="folder-filter-select"></select>
-  <select id="doc-select"></select>
 
-  <div id="controls" style="display:none;">
-    <button id="prev">Previous</button>
-    <button id="next">Next</button>
-    Page <span id="page-num">1</span> / <span id="page-count">--</span>
+  <div class="top-bar">
+    <div class="left-side">
+      <input type="file" id="file-input" accept="application/pdf" multiple />
+      <select id="folder-filter-select"></select>
+      <select id="doc-select"></select>
+    </div>
+    
+    <div class="right-side" id="controls">
+      <button id="prev">Previous</button>
+      <button id="next">Next</button>
+      Page <span id="page-num">1</span> / <span id="page-count">--</span>
+    </div>
   </div>
-  <div id="viewer">
+
+  
+  <div class="page-content" id="viewer">
     <canvas id="pdf-canvas"></canvas>
   </div>
 
@@ -70,7 +68,8 @@
       "All Files": [], // Special folder to show everything
       "Homework": ["hw", "assignment"], // Changed 'XX', 'YY' for more realistic examples
       "Slides": ["Slide", "Presentation"],   // Changed 'QQ' for more realistic examples
-      "Reports": ["Report", "Summary"]
+      "Reports": ["Report", "Summary"],
+      "Graphiti": ["Graphiti"]
       // "Miscellaneous": [] is not strictly needed if "All Files" covers non-matching
     };
 
@@ -152,7 +151,6 @@
         option.textContent = "No PDFs found for this filter";
         option.value = ""; // No valid index
         docSelect.appendChild(option);
-        document.getElementById('controls').style.display = 'none'; // Hide controls if no PDFs
         pdfDoc = null; // Clear PDF viewer
         ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas
         document.getElementById('page-count').textContent = '--';
@@ -170,7 +168,7 @@
       // Automatically select and load the first PDF in the filtered list
       docSelect.selectedIndex = 0;
       loadPDF(0); // Load the PDF at index 0 of the currentFilteredPdfs array
-      document.getElementById('controls').style.display = 'block'; // Show controls
+      document.getElementById('controls').style.visibility = 'visible'; // Show controls
     }
 
     // --- Function to Load PDF into Viewer ---
@@ -265,7 +263,7 @@
       if (!pdfDoc || !searchQuery) {
         clearHighlights();
         document.getElementById('search-results').innerHTML = '';
-        document.getElementById('search-navigation').style.display = 'none';
+        document.getElementById('search-navigation').style.visibility = 'hidden';
         return;
       }
 
@@ -322,7 +320,7 @@
 
       if (searchMatches.length === 0) {
         resultsContainer.innerHTML = 'No matches found';
-        searchNav.style.display = 'none';
+        searchNav.style.visibility = 'hidden';
         return;
       }
 
