@@ -9,15 +9,15 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <input type="text" id="search-input" placeholder="Search in PDF..." style="width: 100%; margin-top: 1rem;" />
-  <div id="search-results" style="margin-top: 0.5rem;"></div>
+  <header><div id="title"><h1>PDF Navigator</h1></div></header>
+
+  <input type="text" id="search-input" placeholder="Search in PDF..." style="width: 100%;" />
+  <div id="search-results" style="margin-top: 1rem;"></div>
   <div id="search-navigation" class="search-nav" style="visibility: hidden;">
-    <button id="prev-match">Previous Match</button>
-    <button id="next-match">Next Match</button>
+    <button type="button" id="prev-match">Previous Match</button>
+    <button type="button" id="next-match">Next Match</button>
     <span id="match-count"></span>
   </div>
-
-  <h2>PDF Navigator</h2>
 
   <div class="top-bar">
     <div class="left-side">
@@ -28,8 +28,8 @@
     
     <div class="right-side" id="controls">
       <div class="page-nav-row">
-        <button id="prev">Previous</button>
-        <button id="next">Next</button>
+        <button type="button" id="prev">Previous</button>
+        <button type="button" id="next">Next</button>
       </div>
       <div class="page-numbers">
         <span>Page</span>
@@ -270,7 +270,7 @@
       if (!pdfDoc || !searchQuery) {
         clearHighlights();
         document.getElementById('search-results').innerHTML = '';
-        document.getElementById('search-navigation').style.display = 'none';
+        document.getElementById('search-navigation').style.visibility = 'hidden';
         return;
       }
 
@@ -347,7 +347,7 @@
       }
 
       resultsContainer.innerHTML = resultsHTML;
-      searchNav.style.display = 'flex';
+      searchNav.style.visibility = "visible";
       document.getElementById('match-count').textContent = `Match ${currentMatchIndex + 1} of ${searchMatches.length}`;
 
       document.querySelectorAll('.search-result').forEach(el => {

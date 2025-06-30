@@ -1,21 +1,68 @@
 body { font-family: Arial; margin: 0; padding: 1rem; }
-#viewer { margin-top: 1rem; }
-canvas { width: 100%; border: 1px solid #ccc; }
+
 .highlight { background-color: yellow; }
-.search-nav { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+
+body > * {
+  order: initial !important;
+  position: relative !important;
+  float: none !important;
+}
+
+/* FORCE TITLE POSITION */
+h1 {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 1000;
+  background: white;
+  padding: 0.5rem 1rem;
+  margin: 0 !important;
+}
+
+/* PUSH CONTENT DOWN */
+#search-input {
+  margin-bottom: 0rem !important;
+}
+
+
+.search-nav {
+  transition: opacity 0.2s ease;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.search-nav.visible {
+  opacity: 1;
+}
 .search-result { cursor: pointer; color: blue; text-decoration: underline; }
 .search-result:hover { color: darkblue; }
 
+#title {
+  display: block;
+  width: 100%;
+  margin-bottom: 0rem;
+  padding-bottom: 0rem;
+}
+
+canvas { width: 100%; border: 1px solid #ccc; }
+
 .top-bar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  margin-bottom: 1rem;
+  margin-bottom: 2rem;
+  flex-grow: 1;
+  row-gap: 0.5rem;
 }
 
 /* Left side - vertical stack */
 .left-side {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
+  flex-grow: 1;
+  margin-right: 4px;
 }
 
 /* File selection row */
@@ -28,8 +75,9 @@ canvas { width: 100%; border: 1px solid #ccc; }
 /* Right side - vertical stack */
 .right-side {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
-  margin-left: 4px;
+  flex-grow: 1;
 }
 
 #controls {
