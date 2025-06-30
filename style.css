@@ -38,13 +38,9 @@ canvas { width: 100%; border: 1px solid #ccc; }
 
 .page-numbers {
   display: flex;
+  flex-direction: row;
   gap: 0.2rem;
   align-items: center;
-}
-
-.page-numbers span {
-  display: inline;
-  flex-direction: row;
   white-space: nowrap;
 }
 
